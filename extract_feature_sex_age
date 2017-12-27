@@ -1,0 +1,38 @@
+spark = SparkSession.builder.config().appName("sex_age").getOrCreate()
+from pyspark.sql import HiveContext, Row
+from pyspark.sql.functions import lit
+
+df2 = spark.sql("select trim(lower(pin)) as pin, sex, age_range from app.app_real_atha_sex_age_range where dt = 'ACTIVE'")
+df1 = spark.sql("select user_log_acct,dt from app.app_plus_loss_user_open_info where dt>='2016-03-01' and dt < '2016-10-01'")
+
+df3 = df1.join(df2, df1.user_log_acct == df2.pin, 'left_outer')
+
+df_sex = df3.select('user_log_acct', 'sex', 'dt')
+
+df_sex = df_sex.withColumn('task',lit('train'))
+df_sex = df_sex.withColumn('ver',lit('v3'))
+df_sex = df_sex.withColumn('f_type',lit('category'))
+df_sex = df_sex.withColumn('f_name',lit('sex'))
+
+df_age = df3.select('user_log_acct', 'sex', 'dt')
+
+df_age = df_sex.withColumn('task',lit('train'))
+df_age = df_sex.withColumn('ver',lit('v3'))
+df_age = df_sex.withColumn('f_type',lit('category'))
+df_age = df_sex.withColumn('f_name',lit('age'))
+
+result = df_sex.union(df_age)
+redult.registerTempTable("sex_age_table")
+
+spark.sql("
+set mapred.output.compress=true;
+set hive.exec.compress.output=true;
+set mapred.output.compression.codec=com.hadoop.compression.lzo.LzopCodec;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+SET hive.exec.max.dynamic.partitions=100000;
+SET hive.exec.max.dynamic.partitions.pernode=100000;
+set hive.merge.mapredfiles=true;
+set hive.merge.size.per.task = 256000000;
+insert overwrite table app.app_plus_renew_feature partition(dt,task,ver,f_type,f_name) select * from sex_age_table
+")
